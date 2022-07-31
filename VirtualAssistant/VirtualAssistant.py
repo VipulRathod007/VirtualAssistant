@@ -1,8 +1,9 @@
+import re
 import os
 import json
+import time
 import random
 import shutil
-import time
 import pyttsx3
 import platform
 import subprocess
@@ -17,6 +18,7 @@ from wikipedia import wikipedia, exceptions
 
 from GenUtility.GenUtilities import GenUtilities
 from GenUtility.Tokenizer import Tokenizer
+from GenUtility.TranslateUtils import GUTranslator
 from GenUtility.Browser import BrowserFactory, Browser
 
 
@@ -33,33 +35,38 @@ class VirtualAssistant:
     Represents VirtualAssistant
     """
 
+    # Constants
+    DUMPLOCATION = os.path.join(os.curdir, '.ignore')
+
     def __init__(self, inGenderCode: Voice = random.randint(Voice.MALE, Voice.FEMALE)):
+        if not os.path.exists(VirtualAssistant.DUMPLOCATION):
+            os.mkdir(VirtualAssistant.DUMPLOCATION)
         self.__mStandByMode = False
         self.__mEngine = pyttsx3.init()
         self.__mTokenizer = Tokenizer()
+        self.__mGUTranslator = GUTranslator()
+        # self.__mBrowser = BrowserFactory.getInstance(GenUtilities.getEnvVariableValue(BrowserFactory.BROWSERDRIVER))
         self.__mBrowser = BrowserFactory.getInstance(r'C:\Users\vrathod\Downloads\chromedriver.exe')
         self.__mBrowser.minimize_window()
         voices = self.__mEngine.getProperty('voices')
         self.__mEngine.setProperty('voice', voices[inGenderCode].id)
 
         self.__mRecognizer = speech_recognition.Recognizer()
-        self.__mRecognizer.pause_threshold = 0.7
+        self.__mRecognizer.pause_threshold = 0.5
 
         with open('app.config', 'r') as file:
             self.__mConfig = json.load(file)
         file.close()
 
-        self.__mDumpLocation = os.path.join(os.curdir, '.ignore')
-        if not os.path.exists(self.__mDumpLocation):
-            os.mkdir(self.__mDumpLocation)
-
         self.__mAppName = self.__mConfig['meta']['app']['name']
         self.__mDevName = self.__mConfig['meta']['dev']['nickname']
 
     def __del__(self):
-        self.__mBrowser.close()
-        self.__mBrowser.quit()
-        shutil.rmtree(self.__mDumpLocation, ignore_errors=True)
+        # TODO: Fix error
+        # self.__mBrowser.close()
+        # self.__mBrowser.quit()
+        if os.path.exists(VirtualAssistant.DUMPLOCATION):
+            shutil.rmtree(VirtualAssistant.DUMPLOCATION, ignore_errors=True)
 
     def activate(self):
         self.speak(f"{self.__mAppName} activated")
@@ -140,29 +147,33 @@ class VirtualAssistant:
     def run(self):
         self.activate()
         while True:
-            query = self.__mTokenizer.getTokens(self.listen().lower())
+            query = self.listen().lower()
 
-            if f'sleep' in query:
-                self.deActivate()
-                break
-            elif 'introduce yourself' in query:
+            if self.__mTokenizer.match(query, ['introduce', 'say hi', 'say hello'], [self.__mAppName]):
                 self.introduce()
-            elif 'stand by' in query:
+            elif self.__mTokenizer.match(query, ['hold', 'hold on', 'stand by', 'standby']):
                 self.standBy()
-            elif 'tell me joke' in query:
+            elif self.__mTokenizer.match(query, ['tell me', 'say', 'say me', 'tell'], ['joke']):
                 self.sayJoke()
-            elif 'clear terminal' in query:
+            elif self.__mTokenizer.match(query, ['clear', 'clean'], ['terminal']):
                 self.clearTerminal()
             elif query.startswith('browse'):
                 self.browse(query.replace('browse ', ''))
-            elif query.startswith('play'):
+            elif self.__mTokenizer.match(query, ['play'], ['youtube']):
                 self.play(query.replace('play ', ''))
-            elif f'wikipedia of ' in query:
+            elif self.__mTokenizer.match(query, ['wikipedia of'], ['show']):
                 self.searchWikipedia(query.replace('wikipedia of ', ''), showPage=True)
+            elif self.__mTokenizer.match(query, ['wikipedia of']):
+                self.searchWikipedia(query.replace('wikipedia of ', ''), showPage=False)
             elif query.startswith('run'):
                 self.runExecutable(query.replace('run ', ''))
-            elif 'activate' in query:
+            elif self.__mTokenizer.match(query, ['translate']):
+                self.translate(query)
+            elif self.__mTokenizer.match(query, ['wake up', 'activate', 'start', 'initiate']):
                 self.activate()
+            elif self.__mTokenizer.match(query, ['sleep', 'deactivate', 'abort', 'dismiss']):
+                self.deActivate()
+                break
             else:
                 self.speak('Snap, Couldn\'t figure it out!')
 
@@ -200,12 +211,13 @@ class VirtualAssistant:
         GenUtilities.isNoneOrEmpty(inQuery)
         try:
             queryPage = wikipedia.page(inQuery)
-            self.speak(queryPage.title)
+            print(queryPage.summary)
+            self.speak(queryPage.summary)
             if showPage:
-                with open(os.path.join(self.__mDumpLocation, 'result.html'), 'w', encoding='utf-8') as file:
+                with open(os.path.join(VirtualAssistant.DUMPLOCATION, 'result.html'), 'w', encoding='utf-8') as file:
                     file.write(str(queryPage.html()))
                 file.close()
-                subprocess.run(os.path.join(self.__mDumpLocation, 'result.html'))
+                os.startfile(os.path.join(VirtualAssistant.DUMPLOCATION, 'result.html'))
         except exceptions.WikipediaException as error:
             self.speak(str(error))
 
@@ -225,3 +237,21 @@ class VirtualAssistant:
         :return: None
         """
         self.__mStandByMode = True
+
+    def translate(self, inQuery: str):
+        """
+        Translation utility
+        :param inQuery: Source text
+        :return: Translated text
+        """
+        try:
+            matchedStr = re.match(r'translate ([A-Za-z0-9 ]+) in ([A-Za-z]+)', inQuery.lower())
+            if len(matchedStr.groups()) != 2:
+                print(f"Expected targets (i.e Query and language) not found: {inQuery}")
+            query, language = matchedStr.groups()
+            result = self.__mGUTranslator.translate(query, language)
+            GenUtilities.isNoneOrEmpty(result)
+            print(f'"{query}" means "{result}" in {language}')
+            self.speak(f'"{query}" means "{result}" in {language}')
+        except Exception as error:
+            print(f'Error: {error}')

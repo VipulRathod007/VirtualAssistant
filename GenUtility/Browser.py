@@ -24,10 +24,13 @@ class BrowserFactory(ABC):
     Class represents Browser Factory
     """
 
+    # Constants
+    BROWSERDRIVER = 'BROWSERDRIVER'
+
     __browserInstances = defaultdict()
 
     @classmethod
-    def getInstance(cls, inDriverPath: str, inBrowser: Browser = Browser.CHROME) -> Chrome | None:
+    def getInstance(cls, inDriverPath: str, inBrowser: Browser = Browser.CHROME) -> Any | None:
         """
         To get the singleton web driver instance
         :param inDriverPath: Driver path
