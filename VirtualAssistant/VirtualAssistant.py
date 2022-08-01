@@ -1,6 +1,8 @@
+import logging
 import re
 import os
 import json
+import sys
 import time
 import random
 import shutil
@@ -11,14 +13,16 @@ import webbrowser
 import speech_recognition
 from enum import IntEnum
 from urllib import parse
+from logging import Logger, DEBUG
 from pyjokes import pyjokes
 from selenium import webdriver, common
 from wikipedia import wikipedia, exceptions
 
 
-from GenUtility.GenUtilities import GenUtilities
 from GenUtility.Tokenizer import Tokenizer
+from GenUtility.GenUtilities import GenUtilities
 from GenUtility.TranslateUtils import GUTranslator
+from GenUtility.SetupRoutine import GUSetupRoutine
 from GenUtility.Browser import BrowserFactory, Browser
 
 
@@ -33,18 +37,24 @@ class Voice(IntEnum):
 class VirtualAssistant:
     """
     Represents VirtualAssistant
+    TODO: Add Logging Support
     """
 
     # Constants
-    DUMPLOCATION = os.path.join(os.curdir, '.ignore')
+    __dumploc__ = os.path.join(os.curdir, '.ignore')
+    __assetsloc__ = os.path.join(os.curdir, '.assets')
+    __routinefile__ = 'setup.json'
 
     def __init__(self, inGenderCode: Voice = random.randint(Voice.MALE, Voice.FEMALE)):
-        if not os.path.exists(VirtualAssistant.DUMPLOCATION):
-            os.mkdir(VirtualAssistant.DUMPLOCATION)
+        if not os.path.exists(VirtualAssistant.__dumploc__):
+            os.mkdir(VirtualAssistant.__dumploc__)
+        if not os.path.exists(VirtualAssistant.__assetsloc__):
+            os.mkdir(VirtualAssistant.__assetsloc__)
         self.__mStandByMode = False
         self.__mEngine = pyttsx3.init()
         self.__mTokenizer = Tokenizer()
         self.__mGUTranslator = GUTranslator()
+        self.__mGUSetupRoutineHandler = GUSetupRoutine(os.path.join(self.__assetsloc__, self.__routinefile__))
         # self.__mBrowser = BrowserFactory.getInstance(GenUtilities.getEnvVariableValue(BrowserFactory.BROWSERDRIVER))
         self.__mBrowser = BrowserFactory.getInstance(r'C:\Users\vrathod\Downloads\chromedriver.exe')
         self.__mBrowser.minimize_window()
@@ -65,13 +75,16 @@ class VirtualAssistant:
         # TODO: Fix error
         # self.__mBrowser.close()
         # self.__mBrowser.quit()
-        if os.path.exists(VirtualAssistant.DUMPLOCATION):
-            shutil.rmtree(VirtualAssistant.DUMPLOCATION, ignore_errors=True)
+        if os.path.exists(VirtualAssistant.__dumploc__):
+            shutil.rmtree(VirtualAssistant.__dumploc__, ignore_errors=True)
 
     def activate(self):
         self.speak(f"{self.__mAppName} activated")
         self.speak(f'Hii {self.__mDevName}.')
-        self.speak('Ready to take command')
+        self.speak('Initiating Setup Routine')
+        self.initiate()
+        self.speak('Setup Routine Completed')
+        self.speak('Ready to take command now')
 
     def browse(self, inQuery: str):
         """
@@ -91,6 +104,22 @@ class VirtualAssistant:
         """
         os.system('cls' if platform.system().lower() == 'windows' else 'clear')
 
+    def createRoutine(self):
+        """
+        Creates Setup Routine
+        """
+        self.speak('Ready to create')
+        commands = []
+        while True:
+            query = self.listen().lower()
+            if GenUtilities.isNoneOrEmpty(query, ignoreError=True):
+                continue
+            elif self.__mTokenizer.match(query, ['quit', 'stop', 'end', 'done']):
+                break
+            else:
+                commands.append(query)
+        return self.__mGUSetupRoutineHandler.create(commands)
+
     def deActivate(self):
         self.__mBrowser = None
         self.speak('Signing off today!')
@@ -100,6 +129,17 @@ class VirtualAssistant:
     def introduce(self):
         self.speak(f'Hello World! I am {self.__mAppName}')
         self.speak(f"{self.__mConfig['meta']['app']['bio']}")
+
+    def initiate(self):
+        """
+        Runs the initial setup routine
+        :return: None
+        """
+        commands = self.__mGUSetupRoutineHandler.read()
+        if not GenUtilities.isNoneOrEmpty(commands, ignoreError=True):
+            for operation in commands:
+                if not GenUtilities.isNoneOrEmpty(operation, ignoreError=True):
+                    self.proceed(operation)
 
     def listen(self) -> str:
         """
@@ -144,38 +184,53 @@ class VirtualAssistant:
             print(error)
             self.play(inQuery)
 
+    def proceed(self, inCommand: str = None):
+        """
+        To proceed with the incoming command
+        :param inCommand: The incoming command via Microphone or input params
+        :return: None
+        """
+        query = self.listen().lower() if GenUtilities.isNoneOrEmpty(inCommand, ignoreError=True) else inCommand
+        if self.__mTokenizer.match(query, ['introduce', 'say hi', 'say hello'], [self.__mAppName]):
+            self.introduce()
+        elif self.__mTokenizer.match(query, ['hold', 'hold on', 'stand by', 'standby']):
+            self.standBy()
+        elif self.__mTokenizer.match(query, ['tell me', 'say', 'say me', 'tell'], ['joke']):
+            self.sayJoke()
+        elif self.__mTokenizer.match(query, ['clear', 'clean'], ['terminal']):
+            self.clearTerminal()
+        elif query.startswith('browse'):
+            self.browse(query.replace('browse ', ''))
+        elif self.__mTokenizer.match(query, ['play'], ['youtube']):
+            self.play(query.replace('play ', ''))
+        elif self.__mTokenizer.match(query, ['wikipedia of'], ['show']):
+            self.searchWikipedia(query.replace('wikipedia of ', ''), showPage=True)
+        elif self.__mTokenizer.match(query, ['wikipedia of']):
+            self.searchWikipedia(query.replace('wikipedia of ', ''), showPage=False)
+        elif query.startswith('run'):
+            self.runExecutable(query.replace('run ', ''))
+        elif self.__mTokenizer.match(query, ['translate']):
+            self.translate(query)
+
+        # TODO: Enhance code below
+        elif self.__mTokenizer.match(query, ['create'], ['routine']):
+            self.createRoutine()
+        elif self.__mTokenizer.match(query, ['append'], ['routine']):
+            self.__mGUSetupRoutineHandler.append(query.replace('append', '').replace('routine', ''))
+        elif self.__mTokenizer.match(query, ['delete'], ['routine']):
+            self.__mGUSetupRoutineHandler.delete(query.replace('append', '').replace('routine', ''))
+
+        elif self.__mTokenizer.match(query, ['sleep', 'deactivate', 'abort', 'dismiss']):
+            self.deActivate()
+            self.__del__()
+            sys.exit(1)
+        else:
+            self.speak('Snap, Couldn\'t figure it out!')
+
     def run(self):
         self.activate()
         while True:
-            query = self.listen().lower()
-
-            if self.__mTokenizer.match(query, ['introduce', 'say hi', 'say hello'], [self.__mAppName]):
-                self.introduce()
-            elif self.__mTokenizer.match(query, ['hold', 'hold on', 'stand by', 'standby']):
-                self.standBy()
-            elif self.__mTokenizer.match(query, ['tell me', 'say', 'say me', 'tell'], ['joke']):
-                self.sayJoke()
-            elif self.__mTokenizer.match(query, ['clear', 'clean'], ['terminal']):
-                self.clearTerminal()
-            elif query.startswith('browse'):
-                self.browse(query.replace('browse ', ''))
-            elif self.__mTokenizer.match(query, ['play'], ['youtube']):
-                self.play(query.replace('play ', ''))
-            elif self.__mTokenizer.match(query, ['wikipedia of'], ['show']):
-                self.searchWikipedia(query.replace('wikipedia of ', ''), showPage=True)
-            elif self.__mTokenizer.match(query, ['wikipedia of']):
-                self.searchWikipedia(query.replace('wikipedia of ', ''), showPage=False)
-            elif query.startswith('run'):
-                self.runExecutable(query.replace('run ', ''))
-            elif self.__mTokenizer.match(query, ['translate']):
-                self.translate(query)
-            elif self.__mTokenizer.match(query, ['wake up', 'activate', 'start', 'initiate']):
-                self.activate()
-            elif self.__mTokenizer.match(query, ['sleep', 'deactivate', 'abort', 'dismiss']):
-                self.deActivate()
-                break
-            else:
-                self.speak('Snap, Couldn\'t figure it out!')
+            self.proceed()
 
     def runExecutable(self, inAppName: str):
         """
@@ -214,10 +269,10 @@ class VirtualAssistant:
             print(queryPage.summary)
             self.speak(queryPage.summary)
             if showPage:
-                with open(os.path.join(VirtualAssistant.DUMPLOCATION, 'result.html'), 'w', encoding='utf-8') as file:
+                with open(os.path.join(VirtualAssistant.__dumploc__, 'result.html'), 'w', encoding='utf-8') as file:
                     file.write(str(queryPage.html()))
                 file.close()
-                os.startfile(os.path.join(VirtualAssistant.DUMPLOCATION, 'result.html'))
+                os.startfile(os.path.join(VirtualAssistant.__dumploc__, 'result.html'))
         except exceptions.WikipediaException as error:
             self.speak(str(error))
 
