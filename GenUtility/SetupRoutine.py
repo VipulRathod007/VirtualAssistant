@@ -1,5 +1,5 @@
-import json
 import os
+import json
 
 from GenUtility.GenUtilities import GenUtilities
 from GenUtility.Tokenizer import Tokenizer
@@ -31,7 +31,6 @@ class GUSetupRoutine:
         :return: True if created else false
         """
         try:
-            GenUtilities.isNoneOrEmpty(inCommands)
             inCommands = list(map(lambda inArg: inArg.strip(), inCommands))
             with open(self.__mFileLoc, inMode) as file:
                 json.dump(inCommands, file)

@@ -1,4 +1,3 @@
-import logging
 import re
 import os
 import json
@@ -6,15 +5,19 @@ import sys
 import time
 import random
 import shutil
+import logging
 import pyttsx3
 import platform
+import pyautogui
+import clipboard
 import subprocess
 import webbrowser
 import speech_recognition
 from enum import IntEnum
 from urllib import parse
-from logging import Logger, DEBUG
 from pyjokes import pyjokes
+from datetime import datetime
+from logging import Logger, DEBUG
 from selenium import webdriver, common
 from wikipedia import wikipedia, exceptions
 
@@ -43,6 +46,7 @@ class VirtualAssistant:
     # Constants
     __dumploc__ = os.path.join(os.curdir, '.ignore')
     __assetsloc__ = os.path.join(os.curdir, '.assets')
+    __snapshotloc__ = os.path.join(os.curdir, 'Screenshots')
     __routinefile__ = 'setup.json'
 
     def __init__(self, inGenderCode: Voice = random.randint(Voice.MALE, Voice.FEMALE)):
@@ -50,6 +54,8 @@ class VirtualAssistant:
             os.mkdir(VirtualAssistant.__dumploc__)
         if not os.path.exists(VirtualAssistant.__assetsloc__):
             os.mkdir(VirtualAssistant.__assetsloc__)
+        if not os.path.exists(VirtualAssistant.__snapshotloc__):
+            os.mkdir(VirtualAssistant.__snapshotloc__)
         self.__mStandByMode = False
         self.__mEngine = pyttsx3.init()
         self.__mTokenizer = Tokenizer()
@@ -97,6 +103,9 @@ class VirtualAssistant:
         self.__mBrowser.maximize_window()
         BrowserFactory.openNewTab(f'https://www.google.com/search?q={parse.quote(inQuery)}')
         self.__mBrowser.minimize_window()
+
+    def copyToClipboard(self):
+        clipboard.copy(self.__input__())
 
     def clearTerminal(self):
         """
@@ -218,12 +227,16 @@ class VirtualAssistant:
         elif self.__mTokenizer.match(query, ['append'], ['routine']):
             self.__mGUSetupRoutineHandler.append(query.replace('append', '').replace('routine', ''))
         elif self.__mTokenizer.match(query, ['delete'], ['routine']):
-            self.__mGUSetupRoutineHandler.delete(query.replace('append', '').replace('routine', ''))
+            self.__mGUSetupRoutineHandler.delete(query.replace('delete', '').replace('routine', ''))
 
         elif self.__mTokenizer.match(query, ['sleep', 'deactivate', 'abort', 'dismiss']):
             self.deActivate()
             self.__del__()
             sys.exit(1)
+        elif self.__mTokenizer.match(query, ['screenshot', 'snapshot']):
+            self.snapshot()
+        elif self.__mTokenizer.match(query, ['copy']):
+            self.copyToClipboard()
         else:
             self.speak('Snap, Couldn\'t figure it out!')
 
@@ -276,6 +289,9 @@ class VirtualAssistant:
         except exceptions.WikipediaException as error:
             self.speak(str(error))
 
+    def snapshot(self):
+        pyautogui.screenshot(os.path.join(self.__snapshotloc__, f'VA_ScreenShot_{random.random()}.png'))
+
     def speak(self, inMessage: str):
         """
         Speak Utility
@@ -310,3 +326,18 @@ class VirtualAssistant:
             self.speak(f'"{query}" means "{result}" in {language}')
         except Exception as error:
             print(f'Error: {error}')
+
+    # Private:
+    def __input__(self) -> str:
+        """Listens voice as input"""
+        query = ''
+        currQuery = ''
+        while True:
+            currQuery = self.listen()
+            if currQuery in ['exit', 'stop', 'quit', 'terminate']:
+                break
+            elif self.__mTokenizer.match(query, ['restart', 'redo', 'listen now']):
+                currQuery = ''
+            else:
+                query += currQuery
+        return query
